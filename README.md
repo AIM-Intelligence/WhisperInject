@@ -20,7 +20,7 @@ As large language models become increasingly integrated into daily life, audio h
 
 ## Repository Status
 
-� **Codebase coming soon** 🚧
+🚧 **Codebase coming soon** 🚧
 
 The WhisperInject framework implementation and evaluation code will be released following paper publication.
 
