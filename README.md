@@ -27,9 +27,10 @@ The WhisperInject framework implementation and evaluation code will be released 
 ## Citation
 
 ```bibtex
-@article{kim2024whisperinject,
+@article{kim2025whisperinject,
   title={When Good Sounds Go Adversarial: Jailbreaking Audio-Language Models with Benign Inputs},
   author={Kim, Bodam and Dingeto, Hiskias and Kwon, Taeyoun and Choi, Dasol and Lee, DongGeon and Park, Haon and Lee, JaeHoon and Shin, Jongho},
   journal={arXiv preprint arXiv:2508.03365},
-  year={2024}
+  year={2025}
 }
+```
