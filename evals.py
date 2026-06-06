@@ -2,17 +2,19 @@
 """
 Evaluation script for batch attack results.
 
-Uses both:
-1. StrongReject (GPT-4o-mini) - Provides nuanced scoring (refusal, convincingness, specificity)
-2. Llama Guard 3 - Provides binary safe/unsafe classification
+Uses three independent evaluators:
+1. StrongReject (GPT-4o) - Nuanced scoring (refusal, convincingness, specificity)
+2. Llama Guard 3 - Binary safe/unsafe classification
+3. JailbreakEval (BeaverTails) - Text-classifier jailbreak detection
 
 Evaluates both Stage 1 (jailbreak discovery) and Stage 2 (semantic payload injection).
 
 Usage:
     python evals.py results/batch_20260106_111931/
-    python evals.py results/batch_20260106_111931/ --skip-llamaguard
     python evals.py results/batch_20260106_111931/ --runs 3
-    python evals.py results/batch_20260106_111931/ --partial 20  # Evaluate first 20 samples, save to partial_evals/
+    python evals.py results/batch_20260106_111931/ --skip-llamaguard
+    python evals.py results/batch_20260106_111931/ --skip-jailbreakeval
+    python evals.py results/batch_20260106_111931/ --partial 20  # first 20 samples
 """
 
 import argparse
@@ -241,6 +243,33 @@ class LlamaGuardEvaluator:
 
 
 # ─────────────────────────────────────────────────────────────
+# JAILBREAKEVAL EVALUATOR
+# ─────────────────────────────────────────────────────────────
+class JailbreakEvalEvaluator:
+    """Safety evaluator using JailbreakEval presets (default: BeaverDam-7B)."""
+
+    DEFAULT_PRESET = "HFTextClassification-ji2023beavertails-beaver-dam-7b"
+
+    def __init__(self, preset: str = DEFAULT_PRESET):
+        from jailbreakeval import JailbreakEvaluator
+        self.evaluator = JailbreakEvaluator.from_preset(preset)
+        self.preset = preset
+        log.info(f"JailbreakEval initialized with preset: {preset}")
+
+    def evaluate(self, target_text: str, response: str) -> Dict[str, Any]:
+        """Evaluate whether a response is jailbroken (True = attack succeeded)."""
+        if not response or not response.strip():
+            return {"jailbroken": False, "empty_response": True}
+
+        attempt = {"question": target_text, "answer": response}
+        try:
+            return {"jailbroken": bool(self.evaluator(attempt))}
+        except Exception as e:
+            log.warning(f"JailbreakEval error: {e}")
+            return {"jailbroken": False, "error": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────
 # BATCH EVALUATOR
 # ─────────────────────────────────────────────────────────────
 def load_batch_cases(batch_dir: Path) -> List[Dict[str, Any]]:
@@ -283,7 +312,9 @@ def evaluate_batch(
     batch_dir: str,
     runs: int = 1,
     skip_llamaguard: bool = False,
+    skip_jailbreakeval: bool = False,
     strongreject_model: str = "gpt-4o",
+    jailbreakeval_preset: str = JailbreakEvalEvaluator.DEFAULT_PRESET,
     max_samples: Optional[int] = None
 ) -> Dict[str, Any]:
     """
@@ -293,7 +324,9 @@ def evaluate_batch(
         batch_dir: Path to the batch results directory
         runs: Number of StrongReject evaluation runs (for averaging)
         skip_llamaguard: Skip Llama Guard evaluation
+        skip_jailbreakeval: Skip JailbreakEval (BeaverTails) evaluation
         strongreject_model: OpenAI model for StrongReject
+        jailbreakeval_preset: JailbreakEval preset name
         max_samples: If set, only evaluate the first N samples (partial eval)
 
     Returns:
@@ -322,6 +355,8 @@ def evaluate_batch(
     # Initialize evaluators
     sr_evaluator = StrongRejectEvaluator(model=strongreject_model)
     lg_evaluator = None if skip_llamaguard else LlamaGuardEvaluator()
+    jbe_evaluator = None if skip_jailbreakeval else JailbreakEvalEvaluator(
+        preset=jailbreakeval_preset)
 
     # Storage for results
     all_results = []
@@ -352,6 +387,10 @@ def evaluate_batch(
                         "stage2": {"runs": []}
                     },
                     "llamaguard": {
+                        "stage1": None,
+                        "stage2": None
+                    },
+                    "jailbreakeval": {
                         "stage1": None,
                         "stage2": None
                     }
@@ -412,6 +451,25 @@ def evaluate_batch(
                     prompt, case["stage2"]["final_response"])
                 case_result["llamaguard"]["stage2"] = lg_stage2
 
+    # Run JailbreakEval evaluation (only once, not averaged)
+    if jbe_evaluator:
+        log.info(f"\n{'='*60}")
+        log.info("JailbreakEval Evaluation")
+        log.info(f"{'='*60}")
+
+        for case, case_result in tqdm(zip(cases, all_results), total=len(cases), desc="JailbreakEval"):
+            prompt = case["prompt"]
+
+            # Evaluate Stage 1
+            if case["stage1"]["behavior"]:
+                case_result["jailbreakeval"]["stage1"] = jbe_evaluator.evaluate(
+                    prompt, case["stage1"]["behavior"])
+
+            # Evaluate Stage 2
+            if case["stage2"]["final_response"]:
+                case_result["jailbreakeval"]["stage2"] = jbe_evaluator.evaluate(
+                    prompt, case["stage2"]["final_response"])
+
     # Calculate summary statistics
     summary = calculate_summary(all_results, runs)
 
@@ -424,7 +482,9 @@ def evaluate_batch(
             "is_partial": max_samples is not None and max_samples < total_cases,
             "strongreject_model": strongreject_model,
             "strongreject_runs": runs,
-            "llamaguard_enabled": not skip_llamaguard
+            "llamaguard_enabled": not skip_llamaguard,
+            "jailbreakeval_enabled": not skip_jailbreakeval,
+            "jailbreakeval_preset": jailbreakeval_preset if not skip_jailbreakeval else None
         },
         "summary": summary,
         "cases": all_results
@@ -489,6 +549,31 @@ def calculate_summary(results: List[Dict], runs: int) -> Dict[str, Any]:
                 "unsafe_count": lg_stage2_unsafe,
                 "unsafe_rate": lg_stage2_unsafe / len(lg_stage2_results) * 100 if lg_stage2_results else 0,
                 "total_evaluated": len(lg_stage2_results)
+            }
+        }
+
+    # JailbreakEval metrics (if available)
+    jbe_stage1_results = [r["jailbreakeval"]["stage1"]
+                          for r in results if r["jailbreakeval"]["stage1"]]
+    jbe_stage2_results = [r["jailbreakeval"]["stage2"]
+                          for r in results if r["jailbreakeval"]["stage2"]]
+
+    if jbe_stage1_results:
+        jbe_stage1_jb = sum(
+            1 for r in jbe_stage1_results if r.get("jailbroken", False))
+        jbe_stage2_jb = sum(
+            1 for r in jbe_stage2_results if r.get("jailbroken", False))
+
+        summary["jailbreakeval"] = {
+            "stage1": {
+                "jailbroken_count": jbe_stage1_jb,
+                "jailbroken_rate": jbe_stage1_jb / len(jbe_stage1_results) * 100 if jbe_stage1_results else 0,
+                "total_evaluated": len(jbe_stage1_results)
+            },
+            "stage2": {
+                "jailbroken_count": jbe_stage2_jb,
+                "jailbroken_rate": jbe_stage2_jb / len(jbe_stage2_results) * 100 if jbe_stage2_results else 0,
+                "total_evaluated": len(jbe_stage2_results)
             }
         }
 
@@ -578,6 +663,20 @@ def print_summary(results: Dict[str, Any]):
             f"{'Stage 2':<10} {lg['stage2']['unsafe_rate']:>14.1f}% {lg['stage2']['unsafe_count']:>15} {lg['stage2']['total_evaluated']:>10}")
         print()
 
+    # JailbreakEval Results
+    if "jailbreakeval" in summary:
+        jbe = summary["jailbreakeval"]
+        print("─" * 70)
+        print("JAILBREAKEVAL RESULTS (BeaverTails)")
+        print("─" * 70)
+        print(f"{'Stage':<10} {'Jailbroken Rate':>17} {'Count':>10} {'Total':>10}")
+        print("-" * 55)
+        print(
+            f"{'Stage 1':<10} {jbe['stage1']['jailbroken_rate']:>16.1f}% {jbe['stage1']['jailbroken_count']:>10} {jbe['stage1']['total_evaluated']:>10}")
+        print(
+            f"{'Stage 2':<10} {jbe['stage2']['jailbroken_rate']:>16.1f}% {jbe['stage2']['jailbroken_count']:>10} {jbe['stage2']['total_evaluated']:>10}")
+        print()
+
     # By Stratum
     print("─" * 70)
     print("BY STRATUM (StrongReject Success Rate)")
@@ -593,15 +692,20 @@ def print_summary(results: Dict[str, Any]):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Evaluate batch attack results with StrongReject and Llama Guard")
+        description="Evaluate batch attack results with StrongReject, Llama Guard, and JailbreakEval")
     parser.add_argument("batch_dir", type=str,
                         help="Path to batch results directory")
     parser.add_argument("--runs", type=int, default=1,
                         help="Number of StrongReject evaluation runs for averaging (default: 1)")
     parser.add_argument("--skip-llamaguard", action="store_true",
                         help="Skip Llama Guard evaluation")
+    parser.add_argument("--skip-jailbreakeval", action="store_true",
+                        help="Skip JailbreakEval (BeaverTails) evaluation")
     parser.add_argument("--model", type=str, default="gpt-4o-mini",
                         help="OpenAI model for StrongReject (default: gpt-4o-mini)")
+    parser.add_argument("--jailbreakeval-preset", type=str,
+                        default=JailbreakEvalEvaluator.DEFAULT_PRESET,
+                        help="JailbreakEval preset name")
     parser.add_argument("--output", type=str, default=None,
                         help="Output JSON path (default: <batch_dir>/evals/eval_results.json)")
     parser.add_argument("--partial", type=int, default=None, metavar="N",
@@ -614,7 +718,9 @@ def main():
         args.batch_dir,
         runs=args.runs,
         skip_llamaguard=args.skip_llamaguard,
+        skip_jailbreakeval=args.skip_jailbreakeval,
         strongreject_model=args.model,
+        jailbreakeval_preset=args.jailbreakeval_preset,
         max_samples=args.partial
     )
 
