@@ -1,0 +1,47 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the following paper."
+title: "When Good Sounds Go Adversarial: Jailbreaking Audio-Language Models with Benign Inputs"
+authors:
+  - family-names: "Dingeto"
+    given-names: "Hiskias"
+  - family-names: "Kwon"
+    given-names: "Taeyoun"
+  - family-names: "Choi"
+    given-names: "Dasol"
+  - family-names: "Kim"
+    given-names: "Bodam"
+  - family-names: "Lee"
+    given-names: "DongGeon"
+  - family-names: "Park"
+    given-names: "Haon"
+  - family-names: "Lee"
+    given-names: "JaeHoon"
+  - family-names: "Shin"
+    given-names: "Jongho"
+preferred-citation:
+  type: article
+  title: "When Good Sounds Go Adversarial: Jailbreaking Audio-Language Models with Benign Inputs"
+  year: 2025
+  journal: "arXiv preprint arXiv:2508.03365"
+  url: "https://arxiv.org/abs/2508.03365"
+  identifiers:
+    - type: other
+      value: "arXiv:2508.03365"
+      description: "arXiv ID"
+  authors:
+    - family-names: "Dingeto"
+      given-names: "Hiskias"
+    - family-names: "Kwon"
+      given-names: "Taeyoun"
+    - family-names: "Choi"
+      given-names: "Dasol"
+    - family-names: "Kim"
+      given-names: "Bodam"
+    - family-names: "Lee"
+      given-names: "DongGeon"
+    - family-names: "Park"
+      given-names: "Haon"
+    - family-names: "Lee"
+      given-names: "JaeHoon"
+    - family-names: "Shin"
+      given-names: "Jongho"

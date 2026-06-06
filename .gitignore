@@ -1,0 +1,10 @@
+.env
+venv
+venv_phi
+
+**/__pycache__/
+results*/
+analysis/
+human_evals/
+
+human_evals_results/
