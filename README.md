@@ -1,6 +1,7 @@
-# Whisper Inject
+# WhisperInject
 
 > **When Good Sounds Go Adversarial: Jailbreaking Audio-Language Models with Benign Inputs**
+> 
 > Paper: [arXiv:2508.03365](https://arxiv.org/abs/2508.03365)
 
 WAV-level adversarial attacks on audio LLMs. This repository contains the core
