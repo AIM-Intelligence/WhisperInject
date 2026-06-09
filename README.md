@@ -217,4 +217,4 @@ If you use this code, please cite:
 
 ## License
 
-Released under the [Apache License 2.0](LICENSE).
+Released under the [Creative Commons Attribution 4.0 International (CC BY 4.0)](LICENSE).
